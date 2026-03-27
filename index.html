@@ -241,21 +241,31 @@ let accumRows = [];
 // 엑셀 고정 컬럼 순서 (엑셀 파일 기준)
 const COL_ORDER = ['날짜','계열','지점명','훈련종류','직종','회차','훈련과정명','훈련일','훈련시간','훈련시작','훈련종료','정원','확정인원','신청인원','모집률','신청률','비고'];
 
+function safeGet(key, fallback) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+  catch(e) { return fallback; }
+}
+function safeSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) {}
+}
+
 (function init() {
-  const sm = localStorage.getItem(STORAGE_MAP);
-  mappings = sm ? JSON.parse(sm) : [{ name: '이주현', branch: '서울강남지점', series: 'IT' }];
-  const se = localStorage.getItem(STORAGE_EMP24);
-  emp24List = se ? JSON.parse(se) : [{
-    courseName: '유니티게임프로그래머 양성과정',
-    type: '국', kind: '게임콘텐츠제작(08030205)',
-    round: '1', days: '125', hours: '870', quota: '20',
-    start: '2026.04.22', end: '2026.10.29'
-  }];
-  const sa = localStorage.getItem(STORAGE_ACCUM);
-  accumRows = sa ? JSON.parse(sa) : [];
-  renderMap();
-  renderEmp24();
-  updateAccumBar();
+  try {
+    mappings  = safeGet(STORAGE_MAP,   [{ name: '', branch: '', series: '' }]);
+    emp24List = safeGet(STORAGE_EMP24, [{ courseName:'', type:'국', kind:'', round:'', days:'', hours:'', quota:'', start:'', end:'' }]);
+    accumRows = safeGet(STORAGE_ACCUM, []);
+    renderMap();
+    renderEmp24();
+    updateAccumBar();
+  } catch(e) {
+    console.error('init error:', e);
+    mappings = [{ name: '', branch: '', series: '' }];
+    emp24List = [];
+    accumRows = [];
+    renderMap();
+    renderEmp24();
+    updateAccumBar();
+  }
 })();
 
 // ── 탭 전환 ──
@@ -297,7 +307,7 @@ function addMapRow() {
 }
 
 function saveMappings() {
-  localStorage.setItem(STORAGE_MAP, JSON.stringify(mappings));
+  safeSet(STORAGE_MAP, mappings);
   showStatus('map-status', `${mappings.filter(m=>m.name.trim()).length}개 매핑 저장 완료!`, 'ok');
 }
 
@@ -395,7 +405,7 @@ function addEmp24Row() {
 }
 
 function saveEmp24() {
-  localStorage.setItem(STORAGE_EMP24, JSON.stringify(emp24List));
+  safeSet(STORAGE_EMP24, emp24List);
   showStatus('emp24-status', '고용24 항목 저장 완료!', 'ok');
 }
 
@@ -645,7 +655,7 @@ function renderPreview() {
 function addToAccum() {
   if (!parsedRows.length) { showStatus('preview-status', '먼저 파싱을 실행해 주세요.', 'err'); return; }
   accumRows = [...accumRows, ...parsedRows];
-  try { localStorage.setItem(STORAGE_ACCUM, JSON.stringify(accumRows)); } catch(e) {}
+  safeSet(STORAGE_ACCUM, accumRows);
   updateAccumBar();
   showStatus('preview-status', `${parsedRows.length}건 추가 → 누적 총 ${accumRows.length}건`, 'ok');
 }
@@ -653,7 +663,7 @@ function addToAccum() {
 function clearAccum() {
   if (!confirm('누적 데이터를 모두 삭제할까요?')) return;
   accumRows = [];
-  localStorage.removeItem(STORAGE_ACCUM);
+  try { localStorage.removeItem(STORAGE_ACCUM); } catch(e) {}
   updateAccumBar();
   showStatus('preview-status', '누적 데이터 초기화 완료', 'warn');
 }
