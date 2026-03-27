@@ -400,37 +400,103 @@ function saveEmp24() {
 }
 
 // ── 파싱 ──
-// 항목 별칭 정규화 (확정=확정인원, 대기=신청인원 포함)
 const FIELD_ALIASES = {
-  '훈련과정명': ['훈련과정명','과정명','과 정 명','과정'],
+  '훈련과정명': ['훈련과정명','과정명','과정'],
   '훈련기간':   ['훈련기간','기간'],
   '훈련시작':   ['훈련시작','시작일','시작'],
   '훈련종료':   ['훈련종료','종료일','종료'],
   '확정인원':   ['확정인원','확정'],
-  '신청인원':   ['신청인원','신청','대기'],
-  '미선발인원': ['미선발인원','미선발'],
+  '신청인원':   ['신청인원','신청','대기','모집인원'],
   '수료인원':   ['수료인원','수료'],
-  '중도탈락':   ['중도탈락'],
+  '중도탈락':   ['중도탈락','탈락'],
   '수강중':     ['수강중','재학중'],
   '비고':       ['비고','기타'],
 };
 
+// 무시할 라인 패턴 (인사말, 제목 등)
+const IGNORE_PATTERNS = [
+  /안녕하세요/,/보고드립니다/,/모집현황/,/^\[/,/^■/,/^\*/,/^[0-9]+\./,
+  /부재/,/완료됐습니다/,/진행했습니다/,/줄어/,/HRD/,/수강철회/,/확정 모집률/,/예상모집/
+];
+
+function normalizeKey(s) {
+  // 공백·특수문자·괄호 제거 후 소문자
+  return s.replace(/[\s▶■\[\]()（）*•·。,，]/g,'').toLowerCase();
+}
+
 function matchField(raw) {
-  const key = raw.trim();
-  const keyNoSpace = key.replace(/\s/g, '');
+  const nk = normalizeKey(raw);
   for (const [canon, aliases] of Object.entries(FIELD_ALIASES)) {
-    if (aliases.some(a => key.includes(a) || keyNoSpace.includes(a.replace(/\s/g,'')))) return canon;
+    if (aliases.some(a => nk.includes(normalizeKey(a)))) return canon;
   }
-  return key;
+  // 원문 그대로 반환 (공백 정리만)
+  return raw.trim().replace(/\s+/g,' ');
+}
+
+function cleanVal(v) {
+  // 괄호 내용 제거, 숫자 뒤 한글 설명 제거, 앞뒤 공백
+  return v.trim()
+    .replace(/\s*\([^)]*\)/g,'')   // (HRD시스템...) 등 괄호 제거
+    .replace(/(\d+명).*$/, '$1')   // "13명 이후 설명" → "13명"
+    .replace(/^0+(\d)/, '$1')      // 08명 → 8명
+    .trim();
 }
 
 function findEmp24(courseName) {
   if (!courseName) return null;
-  const name = courseName.replace(/[\s\[\(]/g,'').toLowerCase();
+  const name = normalizeKey(courseName);
   return emp24List.find(e => {
-    const kw = (e.courseName||'').replace(/[\s\[\(]/g,'').toLowerCase();
-    return kw && name.includes(kw);
+    const kw = normalizeKey(e.courseName||'');
+    return kw.length > 2 && name.includes(kw);
   }) || null;
+}
+
+// 담당자 이름 여부 판별 (한글 2~4자, 특수문자 없음)
+function isPersonName(line) {
+  return /^[가-힣]{2,5}$/.test(line.trim());
+}
+
+// 과정명 구분선 여부 (▶, 숫자., [월] 등)
+function isCourseDelimiter(line) {
+  return /^[▶►]/.test(line) || /^\d+\.\s/.test(line) || /^\[[0-9월]+\]/.test(line);
+}
+
+function parsePeriod(val, row) {
+  // 2026.04.22~ 2026.10.29 또는 2026-04-22 ~ 2026-08-21 형태
+  const m = val.match(/(\d{4}[-./]\d{2}[-./]\d{2})\s*~\s*(\d{4}[-./]\d{2}[-./]\d{2})/);
+  if (m) {
+    row['훈련시작'] = row['훈련시작'] || m[1].replace(/-/g,'.').replace(/\.(?=\d{2}\.)/g,'.').replace(/\.$/, '');
+    row['훈련종료'] = row['훈련종료'] || m[2].replace(/-/g,'.').replace(/\.(?=\d{2}\.)/g,'.').replace(/\.$/, '');
+  }
+}
+
+function finalizeRow(row) {
+  // 훈련기간 → 시작/종료 파싱
+  if (row['훈련기간']) {
+    parsePeriod(row['훈련기간'], row);
+    delete row['훈련기간'];
+  }
+  // 고용24 자동 매핑
+  const emp24 = findEmp24(row['훈련과정명'] || '');
+  if (emp24) {
+    if (!row['훈련종류'])  row['훈련종류']  = emp24.type  || '';
+    if (!row['직종'])      row['직종']      = emp24.kind  || '';
+    if (!row['회차'])      row['회차']      = emp24.round || '';
+    if (!row['훈련일'])    row['훈련일']    = emp24.days  || '';
+    if (!row['훈련시간'])  row['훈련시간']  = emp24.hours || '';
+    if (!row['정원'])      row['정원']      = emp24.quota || '';
+    if (!row['훈련시작'])  row['훈련시작']  = emp24.start || '';
+    if (!row['훈련종료'])  row['훈련종료']  = emp24.end   || '';
+  }
+  // 모집률·신청률 계산
+  const quota     = parseInt(row['정원'])    || 0;
+  const confirmed = parseInt(row['확정인원']) || 0;
+  const applied   = parseInt(row['신청인원']) || 0;
+  if (quota > 0) {
+    row['모집률'] = Math.round(confirmed / quota * 100) + '%';
+    row['신청률'] = Math.round(applied   / quota * 100) + '%';
+  }
+  return row;
 }
 
 function parseText() {
@@ -442,77 +508,105 @@ function parseText() {
   mappings.forEach(m => {
     if (m.name.trim()) {
       branchLookup[m.name.trim()] = m.branch.trim();
-      seriesLookup[m.name.trim()] = m.series ? m.series.trim() : '';
+      seriesLookup[m.name.trim()] = (m.series||'').trim();
     }
   });
 
-  const blocks = raw.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+  const lines = raw.split('\n').map(l => l.trim());
   const rows = [];
+  let currentName = '';
+  let currentBranch = '';
+  let currentSeries = '';
+  let currentRow = null;
 
-  for (const block of blocks) {
-    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
-    if (!lines.length) continue;
-
-    let name = '';
-    let dataLines = lines;
-    if (!lines[0].startsWith('-') && !lines[0].includes(':')) {
-      name = lines[0].trim();
-      dataLines = lines.slice(1);
+  function pushRow() {
+    if (currentRow && currentRow['훈련과정명']) {
+      rows.push(finalizeRow(currentRow));
     }
-
-    const branch = branchLookup[name] || '';
-    const series = seriesLookup[name] || '';
-    const row = { 날짜: today(), 계열: series, 지점명: branch };
-
-    for (const line of dataLines) {
-      const m = line.match(/^[-•*]?\s*([^:：]+)[：:]\s*(.*)$/);
-      if (m) {
-        const field = matchField(m[1]);
-        let val = m[2].trim().replace(/\s*\(.*?\)\s*/g, '').trim();
-        row[field] = val;
-      }
-    }
-
-    // 훈련과정명 기반 고용24 항목 자동 매핑
-    const emp24 = findEmp24(row['훈련과정명'] || '');
-    if (emp24) {
-      if (!row['훈련종류'])   row['훈련종류']   = emp24.type || '';
-      if (!row['직종'])       row['직종']       = emp24.kind || '';
-      if (!row['회차'])       row['회차']       = emp24.round || '';
-      if (!row['훈련일'])     row['훈련일']     = emp24.days || '';
-      if (!row['훈련시간'])   row['훈련시간']   = emp24.hours || '';
-      if (!row['정원'])       row['정원']       = emp24.quota || '';
-      if (!row['훈련시작'])   row['훈련시작']   = emp24.start || '';
-      if (!row['훈련종료'])   row['훈련종료']   = emp24.end || '';
-    }
-
-    // 훈련기간에서 시작/종료 파싱 (고용24 없을 때)
-    if (row['훈련기간'] && (!row['훈련시작'] || !row['훈련종료'])) {
-      const rangeMatch = row['훈련기간'].match(/(\d{4}\.\d{2}\.\d{2})\s*~\s*(\d{4}\.\d{2}\.\d{2})/);
-      if (rangeMatch) {
-        row['훈련시작'] = row['훈련시작'] || rangeMatch[1];
-        row['훈련종료'] = row['훈련종료'] || rangeMatch[2];
-      }
-    }
-    delete row['훈련기간'];
-
-    // 모집률·신청률 계산
-    const quota = parseInt(row['정원']) || 0;
-    const confirmed = parseInt(row['확정인원']) || 0;
-    const applied = parseInt(row['신청인원']) || 0;
-    if (quota > 0) {
-      row['모집률'] = Math.round(confirmed / quota * 100) + '%';
-      row['신청률'] = Math.round(applied / quota * 100) + '%';
-    }
-
-    rows.push(row);
+    currentRow = null;
   }
+
+  function newRow() {
+    pushRow();
+    currentRow = { 날짜: today(), 계열: currentSeries, 지점명: currentBranch };
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+
+    // 담당자 이름 감지
+    if (isPersonName(line)) {
+      pushRow();
+      currentName   = line.trim();
+      currentBranch = branchLookup[currentName] || '';
+      currentSeries = seriesLookup[currentName] || '';
+      currentRow = null;
+      continue;
+    }
+
+    // 무시할 라인
+    if (IGNORE_PATTERNS.some(p => p.test(line))) continue;
+
+    // 과정 구분선 (▶ 과 정 명 : ... 또는 1. 과정명 : ...)
+    if (isCourseDelimiter(line)) {
+      // ▶ 과 정 명 : 값 이 같은 줄에 있는 경우
+      const inlineMatch = line.match(/[▶►\d.]\s*(.+?)[：:]\s*(.+)$/);
+      if (inlineMatch) {
+        const field = matchField(inlineMatch[1]);
+        if (field === '훈련과정명') {
+          newRow();
+          currentRow['훈련과정명'] = inlineMatch[2].trim();
+          continue;
+        }
+      }
+      newRow();
+      continue;
+    }
+
+    // 일반 key : value 라인
+    const kvMatch = line.match(/^[-•*\d.]?\s*([^:：]{1,20})[：:]\s*(.*)$/);
+    if (kvMatch) {
+      const field = matchField(kvMatch[1]);
+      const val   = cleanVal(kvMatch[2]);
+
+      if (field === '훈련과정명') {
+        newRow();
+        currentRow['훈련과정명'] = val;
+        continue;
+      }
+
+      // currentRow 없으면 새로 생성
+      if (!currentRow) {
+        currentRow = { 날짜: today(), 계열: currentSeries, 지점명: currentBranch };
+      }
+
+      // 확정/대기가 같은 셀에 있는 경우: "0명 / 대기 : 19명"
+      if (field === '확정인원' && kvMatch[2].includes('/')) {
+        const parts = kvMatch[2].split('/');
+        currentRow['확정인원'] = cleanVal(parts[0]);
+        parts.slice(1).forEach(p => {
+          const sm = p.match(/([^:：]+)[：:]\s*(.+)/);
+          if (sm) {
+            const sf = matchField(sm[1]);
+            currentRow[sf] = cleanVal(sm[2]);
+          }
+        });
+        continue;
+      }
+
+      if (val) currentRow[field] = val;
+      continue;
+    }
+  }
+
+  pushRow();
 
   parsedRows = rows;
   const noMatch = rows.filter(r => !r.지점명).length;
   const msg = rows.length
     ? `${rows.length}건 파싱 완료${noMatch ? ` · 지점 미매핑 ${noMatch}건` : ''}`
-    : '파싱된 데이터가 없습니다.';
+    : '파싱된 데이터가 없습니다. 텍스트 형식을 확인해 주세요.';
   showStatus('parse-status', msg, rows.length ? (noMatch ? 'warn' : 'ok') : 'err');
   if (rows.length) switchTab('preview');
 }
