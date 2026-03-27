@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>모집현황 보고 파싱 도구</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f4f0;
+    --surface: #ffffff;
+    --surface2: #f0efe9;
+    --border: rgba(0,0,0,0.08);
+    --border-md: rgba(0,0,0,0.14);
+    --text: #1a1916;
+    --text-2: #6b6960;
+    --text-3: #a09e96;
+    --accent: #2a5cff;
+    --accent-light: #eef1ff;
+    --accent-text: #1a3fd4;
+    --success: #1a7a4a;
+    --success-bg: #eaf5ef;
+    --warn: #7a5000;
+    --warn-bg: #fff8ec;
+    --danger: #b22222;
+    --danger-bg: #fef1f1;
+    --radius: 10px;
+    --radius-lg: 16px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Noto Sans KR', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  /* ── Header ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    display: flex;
+    align-items: center;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+  .logo span { color: var(--accent); }
+  .header-sub {
+    margin-left: 12px;
+    font-size: 12px;
+    color: var(--text-3);
+    border-left: 1px solid var(--border-md);
+    padding-left: 12px;
+  }
+
+  /* ── Layout ── */
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+  }
+
+  /* ── Steps nav ── */
+  .steps {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 28px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 6px;
+  }
+  .step-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border: none;
+    background: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-2);
+    transition: background 0.15s, color 0.15s;
+    text-align: left;
+  }
+  .step-btn:hover { background: var(--surface2); }
+  .step-btn.active {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 500;
+  }
+  .step-num {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .step-btn.active .step-num { background: rgba(255,255,255,0.25); color: #fff; }
+
+  /* ── Card ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-2);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: var(--accent-light);
+    color: var(--accent-text);
+  }
+
+  /* ── Mapping table ── */
+  .map-header {
+    display: grid;
+    grid-template-columns: 1fr 24px 1fr 28px;
+    gap: 6px;
+    padding: 0 0 6px;
+    font-size: 11px;
+    color: var(--text-3);
+    font-weight: 500;
+  }
+  .map-rows { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
+  .map-row {
+    display: grid;
+    grid-template-columns: 1fr 24px 1fr 28px;
+    gap: 6px;
+    align-items: center;
+  }
+  .map-row input {
+    width: 100%;
+    height: 34px;
+    padding: 0 10px;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 13px;
+    border: 1px solid var(--border-md);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .map-row input:focus { border-color: var(--accent); background: #fff; }
+  .arrow-icon { text-align: center; font-size: 14px; color: var(--text-3); }
+  .del-btn {
+    width: 26px;
+    height: 26px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-3);
+    font-size: 16px;
+    line-height: 1;
+    transition: background 0.12s, color 0.12s;
+  }
+  .del-btn:hover { background: var(--danger-bg); color: var(--danger); }
+  .add-btn {
+    margin-top: 10px;
+    width: 100%;
+    padding: 8px;
+    border: 1px dashed var(--border-md);
+    border-radius: var(--radius);
+    background: none;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 12px;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .add-btn:hover { border-color: var(--accent); background: var(--accent-light); color: var(--accent-text); }
+
+  /* ── Textarea ── */
+  textarea {
+    width: 100%;
+    height: 200px;
+    resize: vertical;
+    font-family: 'DM Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    padding: 12px 14px;
+    border: 1px solid var(--border-md);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  textarea:focus { border-color: var(--accent); background: #fff; }
+
+  /* ── Buttons ── */
+  .btn-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 18px;
+    border-radius: var(--radius);
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #1a46d4; }
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border-md);
+  }
+  .btn-secondary:hover { background: var(--surface2); }
+  .btn-ghost { background: none; color: var(--text-2); border: 1px solid var(--border); }
+  .btn-ghost:hover { background: var(--surface2); }
+  .btn-success { background: var(--success); color: #fff; }
+  .btn-success:hover { opacity: 0.88; }
+
+  /* ── Status ── */
+  .status-msg {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 500;
+    display: none;
+  }
+  .status-msg.show { display: block; }
+  .status-msg.ok { background: var(--success-bg); color: var(--success); }
+  .status-msg.warn { background: var(--warn-bg); color: var(--warn); }
+  .status-msg.err { background: var(--danger-bg); color: var(--danger); }
+
+  /* ── Preview table ── */
+  .table-wrap {
+    overflow-x: auto;
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  thead th {
+    position: sticky;
+    top: 0;
+    background: var(--surface2);
+    padding: 8px 12px;
+    font-weight: 500;
+    font-size: 11px;
+    color: var(--text-2);
+    border-bottom: 1px solid var(--border-md);
+    text-align: left;
+  }
+  tbody td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--accent-light); }
+  td.no-match { color: var(--danger); font-size: 11px; }
+
+  /* ── Empty state ── */
+  .empty-state {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-3);
+  }
+  .empty-state .icon { font-size: 32px; margin-bottom: 10px; }
+  .empty-state p { font-size: 13px; }
+
+  /* ── Tip box ── */
+  .tip {
+    background: var(--accent-light);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--accent-text);
+    margin-bottom: 16px;
+    line-height: 1.6;
+  }
+
+  /* ── Tabs hidden ── */
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── Accum counter ── */
+  .accum-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 16px;
+    margin-bottom: 14px;
+    font-size: 13px;
+  }
+  .accum-bar strong { color: var(--accent); }
+
+  @media (max-width: 600px) {
+    .steps { flex-direction: column; }
+    .step-btn { justify-content: flex-start; }
+    header { padding: 0 16px; }
+    .container { padding: 20px 14px 60px; }
+    .card { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">모집현황 <span>파싱도구</span></div>
+  <div class="header-sub">직업능력개발훈련 모집보고 자동화</div>
+</header>
+
+<div class="container">
+
+  <nav class="steps">
+    <button class="step-btn active" onclick="switchTab('map')">
+      <span class="step-num">1</span> 담당자-지점 매핑
+    </button>
+    <button class="step-btn" onclick="switchTab('parse')">
+      <span class="step-num">2</span> 보고 텍스트 파싱
+    </button>
+    <button class="step-btn" onclick="switchTab('preview')">
+      <span class="step-num">3</span> 결과 확인 &amp; 다운로드
+    </button>
+  </nav>
+
+  <!-- ① 매핑 탭 -->
+  <div class="tab-panel active" id="tab-map">
+    <div class="tip">
+      담당자 이름과 지점명을 입력해 주세요. 한 번 저장하면 브라우저에 기억됩니다.<br>
+      48개 지점 모두 입력 후 <strong>저장</strong>하면 다음에 다시 열어도 유지됩니다.
+    </div>
+    <div class="card">
+      <div class="card-title">
+        담당자 → 지점 매핑
+        <span class="badge" id="map-count">0개</span>
+      </div>
+      <div class="map-header">
+        <span>담당자 이름</span>
+        <span></span>
+        <span>지점명</span>
+        <span></span>
+      </div>
+      <div class="map-rows" id="map-list"></div>
+      <button class="add-btn" onclick="addMapRow()">＋ 행 추가</button>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveMappings()">💾 저장</button>
+        <button class="btn btn-secondary" onclick="importCSV()">CSV 일괄 가져오기</button>
+        <button class="btn btn-ghost" onclick="exportMapCSV()">CSV 내보내기</button>
+      </div>
+      <div class="status-msg" id="map-status"></div>
+      <input type="file" id="csv-file" accept=".csv" style="display:none" onchange="handleCSV(event)">
+    </div>
+  </div>
+
+  <!-- ② 파싱 탭 -->
+  <div class="tab-panel" id="tab-parse">
+    <div class="tip">
+      메신저에서 복사한 텍스트를 그대로 붙여넣으세요.<br>
+      여러 명 데이터는 <strong>빈 줄로 구분</strong>해서 한 번에 붙여넣어도 자동 처리됩니다.
+    </div>
+    <div class="card">
+      <div class="card-title">보고 텍스트 입력</div>
+      <textarea id="input-text" placeholder="이주현
+- 훈련과정명 : (게임콘텐츠제작) 유니티게임프로그래머 양성과정
+- 훈련기간 : 2026.04.22~ 2026.10.29 (125일 / 6개월)
+- 훈련시간 : 09:00 ~ 17:00 (1일 7시간 / 총 870시간)
+- 정원 : 20명
+- 확정인원 : 1명
+- 신청인원 : 6명
+- 미선발인원 : 1명"></textarea>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="parseText()">▶ 파싱 실행</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('input-text').value=''">초기화</button>
+      </div>
+      <div class="status-msg" id="parse-status"></div>
+    </div>
+  </div>
+
+  <!-- ③ 결과 탭 -->
+  <div class="tab-panel" id="tab-preview">
+    <div class="accum-bar">
+      누적 데이터: <strong id="accum-count">0</strong>행 &nbsp;|&nbsp; 이번 파싱: <strong id="cur-count">0</strong>행
+      <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="clearAccum()">누적 초기화</button>
+    </div>
+    <div class="card">
+      <div class="card-title">
+        파싱 결과 미리보기
+        <span class="badge" id="row-count">0행</span>
+      </div>
+      <div id="preview-area">
+        <div class="empty-state">
+          <div class="icon">📋</div>
+          <p>② 보고 텍스트 파싱 탭에서 파싱을 먼저 실행해 주세요.</p>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-success" onclick="downloadExcel(false)">📥 이번 결과만 엑셀 다운로드</button>
+        <button class="btn btn-primary" onclick="addToAccum()">+ 누적에 추가</button>
+        <button class="btn btn-secondary" onclick="downloadExcel(true)">📦 누적 전체 다운로드</button>
+      </div>
+      <div class="status-msg" id="preview-status"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const STORAGE_KEY = 'hrd_mappings_v2';
+const ACCUM_KEY = 'hrd_accum_v2';
+
+let mappings = [];
+let parsedRows = [];
+let accumRows = [];
+
+// ── 초기화 ──
+(function init() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  mappings = saved ? JSON.parse(saved) : [{ name: '이주현', branch: '서울강남지점' }];
+  const savedAccum = localStorage.getItem(ACCUM_KEY);
+  accumRows = savedAccum ? JSON.parse(savedAccum) : [];
+  renderMap();
+  updateAccumBar();
+})();
+
+// ── 탭 전환 ──
+function switchTab(id) {
+  document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.step-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  const idx = { map: 0, parse: 1, preview: 2 }[id];
+  document.querySelectorAll('.step-btn')[idx].classList.add('active');
+  if (id === 'preview') renderPreview();
+}
+
+// ── 매핑 렌더 ──
+function renderMap() {
+  const list = document.getElementById('map-list');
+  list.innerHTML = '';
+  mappings.forEach((m, i) => {
+    const row = document.createElement('div');
+    row.className = 'map-row';
+    row.innerHTML = `
+      <input value="${esc(m.name)}" placeholder="이름" oninput="mappings[${i}].name=this.value; updateCount()">
+      <div class="arrow-icon">→</div>
+      <input value="${esc(m.branch)}" placeholder="지점명 (예: 서울강남지점)" oninput="mappings[${i}].branch=this.value">
+      <button class="del-btn" onclick="mappings.splice(${i},1); renderMap()" title="삭제">×</button>
+    `;
+    list.appendChild(row);
+  });
+  updateCount();
+}
+
+function updateCount() {
+  const n = mappings.filter(m => m.name.trim()).length;
+  document.getElementById('map-count').textContent = n + '개';
+}
+
+function addMapRow() {
+  mappings.push({ name: '', branch: '' });
+  renderMap();
+  const rows = document.querySelectorAll('.map-row input');
+  if (rows.length) rows[rows.length - 2].focus();
+}
+
+function saveMappings() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(mappings));
+  showStatus('map-status', `${mappings.filter(m=>m.name.trim()).length}개 매핑 저장 완료!`, 'ok');
+}
+
+function importCSV() { document.getElementById('csv-file').click(); }
+
+function handleCSV(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const lines = ev.target.result.split('\n').filter(l => l.trim());
+    const newMaps = lines.map(l => {
+      const p = l.split(',');
+      return { name: clean(p[0]), branch: clean(p[1] || '') };
+    }).filter(m => m.name);
+    mappings = newMaps;
+    renderMap();
+    showStatus('map-status', `CSV ${newMaps.length}개 가져오기 완료`, 'ok');
+  };
+  reader.readAsText(file, 'UTF-8');
+  e.target.value = '';
+}
+
+function exportMapCSV() {
+  const csv = mappings.map(m => `"${m.name}","${m.branch}"`).join('\n');
+  downloadBlob('\uFEFF' + csv, '담당자지점매핑.csv', 'text/csv;charset=utf-8');
+}
+
+// ── 파싱 ──
+const FIELD_MAP = {
+  '훈련과정명': ['훈련과정명','과정명','과정'],
+  '훈련기간': ['훈련기간','기간'],
+  '훈련시간': ['훈련시간','시간'],
+  '정원': ['정원'],
+  '확정인원': ['확정인원','확정'],
+  '신청인원': ['신청인원','신청'],
+  '미선발인원': ['미선발인원','미선발'],
+  '수료인원': ['수료인원','수료'],
+  '중도탈락': ['중도탈락'],
+  '수강중': ['수강중','재학중'],
+  '비고': ['비고','기타'],
+};
+
+function matchField(raw) {
+  const key = raw.trim();
+  for (const [canon, aliases] of Object.entries(FIELD_MAP)) {
+    if (aliases.some(a => key.includes(a))) return canon;
+  }
+  return key;
+}
+
+function parseText() {
+  const raw = document.getElementById('input-text').value.trim();
+  if (!raw) { showStatus('parse-status', '텍스트를 붙여넣어 주세요.', 'err'); return; }
+
+  const branchLookup = {};
+  mappings.forEach(m => { if (m.name.trim()) branchLookup[m.name.trim()] = m.branch.trim(); });
+
+  const blocks = raw.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+  const rows = [];
+
+  for (const block of blocks) {
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) continue;
+
+    let name = '';
+    let dataLines = lines;
+    if (!lines[0].startsWith('-') && !lines[0].includes(':')) {
+      name = lines[0].trim();
+      dataLines = lines.slice(1);
+    }
+
+    const branch = branchLookup[name] || '';
+    const row = { 날짜: today(), 담당자: name, 지점: branch };
+
+    for (const line of dataLines) {
+      const m = line.match(/^[-•*]?\s*([^:：]+)[：:]\s*(.*)$/);
+      if (m) {
+        const field = matchField(m[1]);
+        let val = m[2].trim().replace(/\s*\(.*?\)\s*/g, '').trim();
+        row[field] = val;
+      }
+    }
+    rows.push(row);
+  }
+
+  parsedRows = rows;
+  const noMatch = rows.filter(r => !r.지점).length;
+  const msg = rows.length
+    ? `${rows.length}건 파싱 완료${noMatch ? ` · 지점 미매핑 ${noMatch}건 (담당자 매핑 탭에서 확인)` : ''}`
+    : '파싱된 데이터가 없습니다. 텍스트 형식을 확인해 주세요.';
+  showStatus('parse-status', msg, rows.length ? (noMatch ? 'warn' : 'ok') : 'err');
+  if (rows.length) switchTab('preview');
+}
+
+// ── 미리보기 ──
+const COL_ORDER = ['날짜','담당자','지점','훈련과정명','훈련기간','훈련시간','정원','확정인원','신청인원','미선발인원','수료인원','중도탈락','수강중','비고'];
+
+function getAllCols(rows) {
+  const base = COL_ORDER.filter(c => rows.some(r => r[c] != null && r[c] !== ''));
+  const extra = [];
+  rows.forEach(r => Object.keys(r).forEach(k => { if (!base.includes(k) && !extra.includes(k)) extra.push(k); }));
+  return [...base, ...extra];
+}
+
+function renderPreview() {
+  const area = document.getElementById('preview-area');
+  document.getElementById('row-count').textContent = parsedRows.length + '행';
+  document.getElementById('cur-count').textContent = parsedRows.length;
+
+  if (!parsedRows.length) {
+    area.innerHTML = '<div class="empty-state"><div class="icon">📋</div><p>② 보고 텍스트 파싱 탭에서 파싱을 먼저 실행해 주세요.</p></div>';
+    return;
+  }
+
+  const cols = getAllCols(parsedRows);
+  const thead = `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
+  const tbody = parsedRows.map(r =>
+    `<tr>${cols.map(c => {
+      const v = r[c] || '';
+      const cls = c === '지점' && !v ? ' class="no-match"' : '';
+      return `<td${cls} title="${esc(v)}">${esc(v || (c==='지점' ? '⚠ 미매핑' : ''))}</td>`;
+    }).join('')}</tr>`
+  ).join('');
+
+  area.innerHTML = `<div class="table-wrap"><table>${thead}<tbody>${tbody}</tbody></table></div>`;
+}
+
+// ── 누적 ──
+function addToAccum() {
+  if (!parsedRows.length) { showStatus('preview-status', '먼저 파싱을 실행해 주세요.', 'err'); return; }
+  accumRows = [...accumRows, ...parsedRows];
+  try { localStorage.setItem(ACCUM_KEY, JSON.stringify(accumRows)); } catch(e) {}
+  updateAccumBar();
+  showStatus('preview-status', `누적에 ${parsedRows.length}건 추가 → 총 ${accumRows.length}건`, 'ok');
+}
+
+function clearAccum() {
+  if (!confirm('누적 데이터를 모두 삭제할까요?')) return;
+  accumRows = [];
+  localStorage.removeItem(ACCUM_KEY);
+  updateAccumBar();
+  showStatus('preview-status', '누적 데이터가 초기화되었습니다.', 'warn');
+}
+
+function updateAccumBar() {
+  document.getElementById('accum-count').textContent = accumRows.length;
+}
+
+// ── 엑셀 다운로드 ──
+function downloadExcel(useAccum) {
+  const rows = useAccum ? accumRows : parsedRows;
+  if (!rows.length) { showStatus('preview-status', '다운로드할 데이터가 없습니다.', 'err'); return; }
+  const cols = getAllCols(rows);
+  const data = [cols, ...rows.map(r => cols.map(c => r[c] || ''))];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = cols.map(c => ({ wch: Math.max(c.length * 2.2, 12) }));
+
+  // 헤더 스타일
+  cols.forEach((_, ci) => {
+    const ref = XLSX.utils.encode_cell({ r: 0, c: ci });
+    if (!ws[ref]) return;
+    ws[ref].s = { font: { bold: true }, fill: { fgColor: { rgb: 'F0EFE9' } } };
+  });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '모집현황');
+  const fname = useAccum ? `모집현황_누적_${today()}.xlsx` : `모집현황_${today()}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  showStatus('preview-status', `${fname} 다운로드 완료!`, 'ok');
+}
+
+// ── 유틸 ──
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())}`;
+}
+function pad(n) { return String(n).padStart(2, '0'); }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function clean(s) { return (s||'').trim().replace(/^"|"$/g,''); }
+function showStatus(id, msg, type) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status-msg show ' + type;
+}
+function downloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+}
+</script>
+</body>
+</html>
