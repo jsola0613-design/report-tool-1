@@ -514,14 +514,14 @@ const FIELD_ALIASES = {
 // ※ normalizeKey()가 모든 공백을 제거하므로
 // '과 정 명', '과  정  명', '훈 련 기 간' 등 띄어쓰기 변형은 자동 처리됨
 
-// 무시할 라인 패턴 (인사말, 제목 등)
+// 무시할 라인 패턴 (인사말, 제목 등) — 과정명 포함 가능성 있는 패턴은 제외
 const IGNORE_PATTERNS = [
-  /안녕하세요/,/보고드립니다/,/모집현황/,/^\[/,/^■/,/^\*/,/^[0-9]+\./,
-  /부재/,/완료됐습니다/,/진행했습니다/,/줄어/,/HRD/,/수강철회/,/확정 모집률/,/예상모집/
+  /안녕하세요/,/보고드립니다/,/^■/,/^\*/,
+  /부재/,/완료됐습니다/,/진행했습니다/,/줄어/,/수강철회/,
+  /확정\s*모집률/,/예상모집/,/탈락포기/,/강\s*의\s*장/
 ];
 
 function normalizeKey(s) {
-  // 공백·특수문자·괄호 제거 후 소문자
   return s.replace(/[\s▶■\[\]()（）*•·。,，]/g,'').toLowerCase();
 }
 
@@ -530,16 +530,16 @@ function matchField(raw) {
   for (const [canon, aliases] of Object.entries(FIELD_ALIASES)) {
     if (aliases.some(a => nk.includes(normalizeKey(a)))) return canon;
   }
-  // 원문 그대로 반환 (공백 정리만)
   return raw.trim().replace(/\s+/g,' ');
 }
 
 function cleanVal(v) {
-  // 괄호 내용 제거, 숫자 뒤 한글 설명 제거, 앞뒤 공백
   return v.trim()
-    .replace(/\s*\([^)]*\)/g,'')   // (HRD시스템...) 등 괄호 제거
-    .replace(/(\d+명).*$/, '$1')   // "13명 이후 설명" → "13명"
-    .replace(/^0+(\d)/, '$1')      // 08명 → 8명
+    .replace(/\s*\([^)]*\)\s*:\s*/g, '')  // (HRD...) : 형태 제거
+    .replace(/\s*\([^)]*\)/g,'')          // 나머지 괄호 제거
+    .replace(/(\d+명).*$/, '$1')
+    .replace(/^0+(\d)/, '$1')
+    .replace(/^:\s*/, '')                  // 앞에 남은 콜론 제거
     .trim();
 }
 
@@ -552,22 +552,32 @@ function findEmp24(courseName) {
   }) || null;
 }
 
-// 담당자 이름 여부 판별 (한글 2~4자, 특수문자 없음)
+// 담당자 이름 여부 (한글 2~5자, 공백 없음)
 function isPersonName(line) {
   return /^[가-힣]{2,5}$/.test(line.trim());
 }
 
-// 과정명 구분선 여부 (▶, 숫자., [월] 등)
+// 과정 구분선 여부
+// - "1.  과 정 명 :" 형태 (숫자+점+공백+과정명키워드 포함)
+// - "▶ 과 정 명 :" 형태
+// - "[ 과정명 : ..." 형태 (대괄호로 시작하며 과정명 키워드 포함)
 function isCourseDelimiter(line) {
-  return /^[▶►]/.test(line) || /^\d+\.\s/.test(line) || /^\[[0-9월]+\]/.test(line);
+  const nk = normalizeKey(line);
+  const hasCourseKey = nk.includes('과정명') || nk.includes('과정');
+  if (/^[▶►]/.test(line)) return true;
+  if (/^\d+\.\s/.test(line) && hasCourseKey) return true;
+  if (/^\[/.test(line) && hasCourseKey) return true;
+  return false;
 }
 
 function parsePeriod(val, row) {
-  // 2026.04.22~ 2026.10.29 또는 2026-04-22 ~ 2026-08-21 형태
-  const m = val.match(/(\d{4}[-./]\d{2}[-./]\d{2})\s*~\s*(\d{4}[-./]\d{2}[-./]\d{2})/);
+  // YY.MM.DD 형태도 처리 (26.03.19 → 2026.03.19)
+  const norm = val.replace(/(\b\d{2})\.(\d{2})\.(\d{2})\b/g, (_, y, m, d) => `20${y}.${m}.${d}`);
+  const m = norm.match(/(\d{4}[-./]\d{2}[-./]\d{2})\s*~\s*(\d{4}[-./]\d{2}[-./]\d{2})/);
   if (m) {
-    row['훈련시작'] = row['훈련시작'] || m[1].replace(/-/g,'.').replace(/\.(?=\d{2}\.)/g,'.').replace(/\.$/, '');
-    row['훈련종료'] = row['훈련종료'] || m[2].replace(/-/g,'.').replace(/\.(?=\d{2}\.)/g,'.').replace(/\.$/, '');
+    const fmt = s => s.replace(/-/g,'.').replace(/\.$/,'');
+    row['훈련시작'] = row['훈련시작'] || fmt(m[1]);
+    row['훈련종료'] = row['훈련종료'] || fmt(m[2]);
   }
 }
 
@@ -649,24 +659,29 @@ function parseText() {
     // 무시할 라인
     if (IGNORE_PATTERNS.some(p => p.test(line))) continue;
 
-    // 과정 구분선 (▶ 과 정 명 : ... 또는 1. 과정명 : ...)
+    // 과정 구분선 처리
     if (isCourseDelimiter(line)) {
-      // ▶ 과 정 명 : 값 이 같은 줄에 있는 경우
-      const inlineMatch = line.match(/[▶►\d.]\s*(.+?)[：:]\s*(.+)$/);
+      const inlineMatch = line.match(/(?:[▶►\[\d][^\:：]*)[：:]\s*(.+)$/);
       if (inlineMatch) {
-        const field = matchField(inlineMatch[1]);
-        if (field === '훈련과정명') {
+        // "]" 뒤 내용 포함하여 전체 과정명 추출
+        let val = inlineMatch[1].trim();
+        // "[ 과정명 : 값]" 형태에서 마지막 ] 제거
+        val = val.replace(/\]\s*$/, '').trim();
+        // "1. 과 정 명 : [과정평가형] 나머지과정명" 형태 처리
+        // → 콜론 뒤 전체를 과정명으로 사용
+        if (val) {
           newRow();
-          currentRow['훈련과정명'] = inlineMatch[2].trim();
+          currentRow['훈련과정명'] = val;
           continue;
         }
       }
+      // 다음 줄이 과정명인 경우
       newRow();
       continue;
     }
 
     // 일반 key : value 라인
-    const kvMatch = line.match(/^[-•*\d.]?\s*([^:：]{1,20})[：:]\s*(.*)$/);
+    const kvMatch = line.match(/^[-•*]?\s*([^:：]{1,30})[：:]\s*(.*)$/);
     if (kvMatch) {
       const field = matchField(kvMatch[1]);
       const val   = cleanVal(kvMatch[2]);
@@ -682,15 +697,19 @@ function parseText() {
         currentRow = { 날짜: today(), 계열: currentSeries, 지점명: currentBranch };
       }
 
-      // 확정/대기가 같은 셀에 있는 경우: "0명 / 대기 : 19명"
-      if (field === '확정인원' && kvMatch[2].includes('/')) {
+      // 확정/대기가 같은 셀에 있는 경우: "0명 / 대기 : 19명 / 탈락포기 : 1명"
+      if ((field === '확정인원' || field === '신청인원') && kvMatch[2].includes('/')) {
         const parts = kvMatch[2].split('/');
-        currentRow['확정인원'] = cleanVal(parts[0]);
+        currentRow[field] = cleanVal(parts[0]);
         parts.slice(1).forEach(p => {
           const sm = p.match(/([^:：]+)[：:]\s*(.+)/);
           if (sm) {
             const sf = matchField(sm[1]);
-            currentRow[sf] = cleanVal(sm[2]);
+            // 탈락포기·총계 등 불필요 항목 제외
+            const skip = ['탈락포기','총','합계','기타'];
+            if (!skip.some(s => normalizeKey(sm[1]).includes(s))) {
+              currentRow[sf] = cleanVal(sm[2]);
+            }
           }
         });
         continue;
