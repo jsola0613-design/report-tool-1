@@ -402,7 +402,7 @@ function saveEmp24() {
 // ── 파싱 ──
 // 항목 별칭 정규화 (확정=확정인원, 대기=신청인원 포함)
 const FIELD_ALIASES = {
-  '훈련과정명': ['훈련과정명','과정명','과정'],
+  '훈련과정명': ['훈련과정명','과정명','과 정 명','과정'],
   '훈련기간':   ['훈련기간','기간'],
   '훈련시작':   ['훈련시작','시작일','시작'],
   '훈련종료':   ['훈련종료','종료일','종료'],
@@ -417,8 +417,9 @@ const FIELD_ALIASES = {
 
 function matchField(raw) {
   const key = raw.trim();
+  const keyNoSpace = key.replace(/\s/g, '');
   for (const [canon, aliases] of Object.entries(FIELD_ALIASES)) {
-    if (aliases.some(a => key.includes(a))) return canon;
+    if (aliases.some(a => key.includes(a) || keyNoSpace.includes(a.replace(/\s/g,'')))) return canon;
   }
   return key;
 }
