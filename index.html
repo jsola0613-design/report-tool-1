@@ -149,8 +149,8 @@
         담당자 → 지점 매핑
         <span class="badge" id="map-count">0개</span>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 24px 1fr 80px 28px;gap:6px;padding:0 0 6px;font-size:11px;color:var(--text-3);font-weight:500;">
-        <span>담당자 이름</span><span></span><span>지점명</span><span>계열</span><span></span>
+      <div style="display:grid;grid-template-columns:1fr 24px 80px 1fr 28px;gap:6px;padding:0 0 6px;font-size:11px;color:var(--text-3);font-weight:500;">
+        <span>담당자 이름</span><span></span><span>계열</span><span>지점명</span><span></span>
       </div>
       <div class="map-rows" id="map-list"></div>
       <button class="add-btn" onclick="addMapRow()">＋ 행 추가</button>
@@ -274,12 +274,12 @@ function renderMap() {
   list.innerHTML = '';
   mappings.forEach((m, i) => {
     const row = document.createElement('div');
-    row.style.cssText = 'display:grid;grid-template-columns:1fr 24px 1fr 80px 28px;gap:6px;align-items:center;';
+    row.style.cssText = 'display:grid;grid-template-columns:1fr 24px 80px 1fr 28px;gap:6px;align-items:center;';
     row.innerHTML = `
       <input value="${esc(m.name)}" placeholder="담당자 이름" oninput="mappings[${i}].name=this.value;updateCount()">
       <div style="text-align:center;font-size:14px;color:var(--text-3);">→</div>
-      <input value="${esc(m.branch)}" placeholder="지점명" oninput="mappings[${i}].branch=this.value">
       <input value="${esc(m.series||'')}" placeholder="계열" oninput="mappings[${i}].series=this.value">
+      <input value="${esc(m.branch)}" placeholder="지점명" oninput="mappings[${i}].branch=this.value">
       <button class="del-btn" onclick="mappings.splice(${i},1);renderMap()" title="삭제">×</button>
     `;
     list.appendChild(row);
